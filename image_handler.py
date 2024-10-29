@@ -205,8 +205,8 @@ class nominal_flat:
                                 self.info["Images_headers"][f"wv_{lambd}"][f"Mod_{mod}"][key].append(head0[key])
             
                         # Sving image data into main data array
-                        self.data[0, lambd, mod] += im0 - (dc[0] * head0["nAcc"])
-                        self.data[1, lambd, mod] += np.flip(im1, axis = -1) - (dc[1] * head0["nAcc"]) # Flip cam 2 image. 
+                        self.data[0, lambd, mod] += (im0 - (dc[0] * head0["nAcc"]))
+                        self.data[1, lambd, mod] += (np.flip(im1, axis = -1) - (dc[1] * head0["nAcc"])) # Flip cam 2 image. 
         
         self.data /= (nreps * lambda_repeat)
         self.data /= (nreps * lambda_repeat)
@@ -335,7 +335,8 @@ def separate_ocs_v2(paths, verbose = True, flat_fieldmode = False):
 
     for ind, im in enumerate(paths):
         
-        print(f"{ind}/{len(paths)} read.")
+        if verbose:
+            print(f"{ind}/{len(paths)} read.")
         _, H = read(im)
 
         oc = H['ObservationCounter']

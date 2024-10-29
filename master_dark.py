@@ -15,7 +15,7 @@ import time
 
 # ------------------------------  CODE  ------------------------------------------ # 
 
-def compute_master_darks(dark_paths, verbose = False):
+def compute_master_darks(dark_paths, verbose = False, noflip=False):
 
     tic = time.time()
     # Read first image to obtain image size.
@@ -40,7 +40,10 @@ def compute_master_darks(dark_paths, verbose = False):
 
     for _, img_path in enumerate(darks_cam_2):
         I, _ = read_Tumag(img_path)
-        dark_current[1] += np.flip(I, axis = -1)
+        if noflip:
+            dark_current[1] += I
+        else:
+            dark_current[1] += np.flip(I, axis = -1)
 
     dark_current[0] /= len(darks_cam_1)
     dark_current[1] /= len(darks_cam_2)

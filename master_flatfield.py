@@ -16,7 +16,7 @@ import image_handler as ih
 
 # ------------------------------  CODE  ------------------------------------------ # 
 
-def compute_master_flat_field(flat_fields_paths, dc, lambda_repeat = 4, verbose = False):
+def compute_master_flat_field(flat_fields_paths, dc, lambda_repeat = 4, verbose = False, box_size = 500, normalization = False):
     tic = time.time()
 
     if verbose:
@@ -30,6 +30,7 @@ def compute_master_flat_field(flat_fields_paths, dc, lambda_repeat = 4, verbose 
     om = h["ObservationMode"]
     N_wls = cf.om_config[om]["Nlambda"]
     N_mods = cf.om_config[om]["Nmods"]
+    naccs = h["nAcc"]
 
     if len(flat_fields_paths) % (2 * N_wls * N_mods * lambda_repeat) == 0:
         nreps = int(len(flat_fields_paths) / (2 * N_wls * N_mods * lambda_repeat))
@@ -41,18 +42,27 @@ def compute_master_flat_field(flat_fields_paths, dc, lambda_repeat = 4, verbose 
         print(f"Nº of repetitions: {nreps}")
         print(f"Nº of wavelengths: {N_wls}")
         print(f"Nº of Modulations: {N_mods}")
+        print(f"Nº of Accumulations: {naccs}")
 
     # Read images and correct them from dark current.
     flat_obs = ih.nominal_flat(om, flat_fields_paths, nreps, dc)
 
     data = flat_obs.get_data()
+    data[np.bitwise_not(np.isfinite(data))] = 0
 
+    _, _, _, xs, ys = np.shape(data)
     norm_ff = np.zeros(np.shape(data))
+    lim = xs//2-box_size//2
+
     # Normalize flat-fields
     for lambd in range(N_wls):
-        for mod in range(N_mods):
-            norm_ff[0, lambd, mod] = data[0, lambd, mod] / np.mean(data[0, lambd, mod, 300:-300, 300:-300])
-            norm_ff[1, lambd, mod] = data[1, lambd, mod] / np.mean(data[1, lambd, mod, 300:-300, 300:-300])
+        if normalization: 
+            norm_ff[0, lambd, :] = data[0, lambd, :] / np.mean(data[0, lambd, 0, lim:-lim, lim:-lim])
+            norm_ff[1, lambd, :] = data[1, lambd, :] / np.mean(data[1, lambd, 0, lim:-lim, lim:-lim])
+        else:
+            for mod in range(N_mods):
+                norm_ff[0, lambd, mod] = data[0, lambd, mod] / np.mean(data[0, lambd, mod, 300:-300, 300:-300])
+                norm_ff[1, lambd, mod] = data[1, lambd, mod] / np.mean(data[1, lambd, mod, 300:-300, 300:-300])
 
     print(f"Flat-fields computed in {round(time.time() - tic, 3)} s.")
     return norm_ff, flat_obs.get_info()
