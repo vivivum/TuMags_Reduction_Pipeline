@@ -391,7 +391,7 @@ def separate_ocs(paths, verbose = True, flat_fieldmode = False):
 
     for ind, im in enumerate(paths):
         
-        print(f"{ind}/{len(paths)} read.")
+        # print(f"{ind}/{len(paths)} read.")
         _, H = read(im)
 
         oc = H['ObservationCounter']

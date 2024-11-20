@@ -16,7 +16,7 @@ import image_handler as ih
 
 # ------------------------------  CODE  ------------------------------------------ # 
 
-def compute_master_flat_field(flat_fields_paths, dc, lambda_repeat = 4, verbose = False, box_size = 500, normalization = False):
+def compute_master_flat_field(flat_fields_paths, dc, lambda_repeat = 4, verbose = False, box_size = 400,norm_mod = True, normalization = True):
     tic = time.time()
 
     if verbose:
@@ -51,18 +51,19 @@ def compute_master_flat_field(flat_fields_paths, dc, lambda_repeat = 4, verbose 
     data[np.bitwise_not(np.isfinite(data))] = 0
 
     _, _, _, xs, ys = np.shape(data)
-    norm_ff = np.zeros(np.shape(data))
+    norm_ff = np.copy(data)
     lim = xs//2-box_size//2
 
     # Normalize flat-fields
-    for lambd in range(N_wls):
-        if normalization: 
-            norm_ff[0, lambd, :] = data[0, lambd, :] / np.mean(data[0, lambd, 0, lim:-lim, lim:-lim])
-            norm_ff[1, lambd, :] = data[1, lambd, :] / np.mean(data[1, lambd, 0, lim:-lim, lim:-lim])
-        else:
-            for mod in range(N_mods):
-                norm_ff[0, lambd, mod] = data[0, lambd, mod] / np.mean(data[0, lambd, mod, 300:-300, 300:-300])
-                norm_ff[1, lambd, mod] = data[1, lambd, mod] / np.mean(data[1, lambd, mod, 300:-300, 300:-300])
+    if normalization: 
+        for lambd in range(N_wls):
+            if norm_mod:
+                for mod in range(N_mods):
+                    norm_ff[0, lambd, mod] = data[0, lambd, mod] / np.mean(data[0, lambd, mod, lim:-lim, lim:-lim])
+                    norm_ff[1, lambd, mod] = data[1, lambd, mod] / np.mean(data[1, lambd, mod, lim:-lim, lim:-lim])
+            else:
+                norm_ff[0, lambd, :] = data[0, lambd, :] / np.mean(data[0, lambd, 0, lim:-lim, lim:-lim])
+                norm_ff[1, lambd, :] = data[1, lambd, :] / np.mean(data[1, lambd, 0, lim:-lim, lim:-lim])
 
     print(f"Flat-fields computed in {round(time.time() - tic, 3)} s.")
     return norm_ff, flat_obs.get_info()
