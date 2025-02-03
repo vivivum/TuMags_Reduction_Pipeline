@@ -12,7 +12,12 @@ import time
 from matplotlib import pyplot as plt
 import matplotlib.patches as patches
 from scipy.fftpack import fftshift, ifftshift, fft2, ifft2
+from scipy.ndimage import rotate
 
+# Own functions
+from pd_functions_v22 import restore_ima
+
+# Config
 margin = 10 # Margin from fieldstop
 
 # ------------------------------  AUX FUNCTIONS  --------------------------------- # 
@@ -96,7 +101,7 @@ def FTpad(IM,Nout):
 
 # ------------------------------  MAIN FUNCTS  --------------------------------- # 
 
-def realign_subpixel(ima, accu=0.01, verbose = True):
+def realign_subpixel(ima, accu=0.01, verbose = True, return_shift = False):
     """
     This function aligns a series of images with subpixel images using the Sicairos
     method.
@@ -112,12 +117,16 @@ def realign_subpixel(ima, accu=0.01, verbose = True):
         print('Re-aligning images ...')  
     ima_aligned = np.zeros(np.shape(ima))
     
+    row_shifts = []
+    col_shifts = []
     for j in range(ima.shape[0]):
         
         F0=np.copy(Gshift)
 
         F_comp = fft2(ima[j])
         error, row_shift, col_shift, Gshift2 = dftreg(F0, F_comp, kappa)
+        row_shifts.append(row_shift)
+        col_shifts.append(col_shift)
         if verbose:
             print(f"Shift of image: {j} -> row : {round(row_shift, 4)} col : {round(col_shift, 4)}")
         if j != 0:
@@ -125,7 +134,10 @@ def realign_subpixel(ima, accu=0.01, verbose = True):
         else:
             ima_aligned[j] = ima[0]
     
-    return ima_aligned
+    if return_shift:
+        return ima_aligned, row_shifts, col_shifts
+    else:
+        return ima_aligned
 
 def find_fieldstop(cam1 = None, verbose = False, plot_flag = False, margin = margin):
 
@@ -192,46 +204,114 @@ def find_fieldstop(cam1 = None, verbose = False, plot_flag = False, margin = mar
     print(f"Field stop computation finished in {round(time.time() - tic, 3)}s.")
 
     return cam1_fieldstop
+  
+def filter_and_rotate(data, theta = 0.0655, verbose = False, filterflag = True):
 
-def align_obsmode(data, acc = 0.01, verbose = False):
-    
-    # First align the modulations
-    mods_realigned = align_modulations(data, acc = acc, verbose = True)
-
-    cams_alig = np.zeros(np.shape(mods_realigned))
-
+    # Get shape for data
     shape = np.shape(data)
     nlambda = shape[1]
     nmods = shape[2]
 
-    if verbose:
-        print(f"\nAligning cameras..")
+    filtered_n_rotated  = np.zeros(shape)
 
-    for mod in range(nmods):
-        for lamb in range(nlambda):
-            
-            cams_alig[:, lamb, mod] = realign_subpixel(mods_realigned[:, lamb, mod], accu=acc, verbose = verbose)
+    if filterflag and verbose:
+        print("Noise filtration and camera 2 rotation...")
+    elif verbose:
+        print("Cam 2 rotation...")
 
-    return cams_alig
-
-def align_modulations(data, acc = 0.01, verbose = False):
-
-    shape = np.shape(data)
-    nlambda = shape[1]
-    nmods = shape[2]
-
-    # New array to store fieldstopped and align images
-    aligned = np.zeros((np.shape(data)))
-
-    # Align each wavelength separately
     for lambd in range(nlambda):
-        if verbose:
-            print(f"\nAligning modulations from wavelength : {lambd} / {nlambda}")
+        print(f"Procesing wavelength: {lambd + 1} / {nlambda}")
         
-        aligned[0, lambd] = realign_subpixel(data[0, lambd], verbose = verbose, accu = acc)
+        for mod in range(nmods):
+            # Apply noise filter
 
-        aligned[1, lambd] = data[1, lambd]
+            if filterflag:
+                filtered_n_rotated[0, lambd, mod], _ = restore_ima(data[0, lambd, mod], np.zeros(21))
+                cam2_filtered, _ = restore_ima(data[1, lambd, mod], np.zeros(21))
+                filtered_n_rotated[1, lambd, mod] = rotate(cam2_filtered, theta, reshape=False, order = 2)
+            else:
+                filtered_n_rotated[0, lambd, mod] = data[0, lambd, mod]
+                filtered_n_rotated[1, lambd, mod] = rotate(data[1, lambd, mod], theta, reshape=False, order = 2)
+    
+    return filtered_n_rotated
 
-    return aligned
+def align_obsmode(data, acc = 0.001, verbose = False, theta = 0.0655, filterflag = True):
 
+    shape = np.shape(data)
+    nlambda = shape[1]
+    nmods = shape[2]
+
+    shifts = np.zeros((nlambda, 2, 2, nmods))
+    aligned = np.zeros(np.shape(data))
+
+    # Start by applying noise and rotation
+    filtered_and_rotated = filter_and_rotate(data, verbose = verbose, 
+                                             theta=theta, filterflag = filterflag)  
+
+    for lambd in range(nlambda):
+
+        print(f"Aligning wavelengh: {lambd}/{nlambda}")
+
+        print(f"Modulations of cam 1 alignment...")
+        mods_aligned, srow, scol = realign_subpixel(filtered_and_rotated[0, lambd], verbose = verbose, accu = acc, return_shift=True)
+
+        shifts[lambd, 0, 0] = srow
+        shifts[lambd, 0, 1] = scol
+
+        aligned[0, lambd] = mods_aligned
+
+        print("Aligning cam2...")
+        for mod in range(nmods):
+            print(f"mod -> {mod}...")
+            cams_aligned, srow, scol = realign_subpixel(np.array([mods_aligned[mod], filtered_and_rotated[1, lambd, mod]]), verbose = verbose, accu = acc, return_shift=True )
+
+            shifts[lambd, 1, 0, mod] = srow[1]
+            shifts[lambd, 1, 1, mod] = scol[1]
+
+            aligned[1, lambd, mod] = cams_aligned[1]
+
+    return aligned, shifts
+
+def reshape_into_16_quadrants(images, nlambda, nmods):
+    # Reshape the last two dimensions into a 4x4 grid of (354, 354)
+    reshaped = images.reshape(2, nlambda, nmods, 4, 354, 4, 354)
+    # Rearrange axes to group quadrants into a single dimension
+    return reshaped.transpose(0, 1, 2, 3, 5, 4, 6).reshape(2, nlambda, nmods, 16, 354, 354)
+
+def align_quadrants(data, acc = 0.01, verbose = False):
+
+    shape = np.shape(data)
+    nlambda = shape[1]
+    nmods = shape[2]
+    nquads = shape[3]
+
+    shifts = np.zeros((nlambda, 2, 2, nmods, nquads))
+
+    aligned = np.zeros(np.shape(data))
+
+    for lambd in range(nlambda):
+
+        print(f"\nAligning wavelengh: {lambd}/{nlambda}")
+        print(f"-------------------------------------")
+
+        for quad in range(nquads):
+
+            print(f"\nProcessing Q{quad}... \nModulations of cam 1 alignment...")
+            mods_aligned, srow, scol = realign_subpixel(data[0, lambd, :, quad], verbose = verbose, accu = acc, return_shift=True)
+
+            shifts[lambd, 0, 0, :, quad] = srow
+            shifts[lambd, 0, 1, :, quad] = scol
+
+            aligned[0, lambd, :, quad] = mods_aligned
+
+            for mod in range(nmods):
+                print(f"Cam 2 of M{mod}...")
+                cams_aligned, srow, scol = realign_subpixel(np.array([mods_aligned[mod], data[1, lambd, mod, quad]]), verbose = verbose, accu = acc, return_shift=True )
+
+                shifts[lambd, 1, 0, mod, quad] = srow[1]
+                shifts[lambd, 1, 1, mod, quad] = scol[1]
+
+                aligned[1, lambd, mod, quad] = cams_aligned[1]
+
+    return aligned, shifts
         

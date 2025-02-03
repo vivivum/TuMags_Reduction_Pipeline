@@ -1475,7 +1475,7 @@ def prepare_PD(ima,nuc,N,wind=True,kappa=100):
     susf=np.sum(wind*ima[:,:,0])/np.sum(wind)
     of=(ima[:,:,0]-susf)*wind
 
-    plt.close()
+    #plt.close()
     #Of=mf.fourier2(of)
     Of=fft2(of)
     Of=Of/(N**2)
@@ -1559,6 +1559,10 @@ def object_estimate(ima,a,a_d,wind=True,cobs=0,cut=29,low_f=0.2,tiptilt=False,
         noise_filt=filter_sch(Q,Ok,Hk,gamma,nuc,N,low_f=low_f)
     else:
         noise_filt=noise
+
+    # Filtering readout noise
+    noise_filt[400:470, :] = 0
+    noise_filt[1300:1370, :] = 0
 
     Nima=Ok.shape[2]
     for i in range(0,Nima):
